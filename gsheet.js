@@ -91,7 +91,7 @@ const GS = (() => {
     const tz = (Intl.DateTimeFormat().resolvedOptions().timeZone) || 'Asia/Kolkata';
     const names = Object.keys(TABS);
     const s = await g(SHEETS, { method: 'POST', body: JSON.stringify({
-      properties: { title: 'Centric – Money', locale: 'en_IN', timeZone: tz },
+      properties: { title: 'Centric – Money', locale: 'en_GB', timeZone: tz },   // the Sheets API rejects en_IN; en_GB gives day-month dates, amounts carry their own ₹ format
       sheets: names.map((t, i) => ({ properties: { sheetId: i + 1, title: t, index: i, gridProperties: { frozenRowCount: 1, rowCount: t === 'Expenses' ? 2000 : 500, columnCount: Math.max(TABS[t].length, t === 'Budgets' ? 26 : 1) } } })),
     }) });
     cfg.sheetId = s.spreadsheetId; tabIds = null;
