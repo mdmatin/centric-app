@@ -3,8 +3,8 @@
    while a fresh copy is fetched in the background. When the fresh page differs,
    the app is told, and it switches to the new version the next time it is opened.
    Calls to Google (your data) never pass through here. */
-const CACHE = 'centric-v3';   // a new name clears the old copies when this version takes over
-const CORE = ['./', './index.html', './manifest.json', './icon.png', './apple-touch-icon.png', './favicon-32.png'];
+const CACHE = 'centric-m-v1';   // a new name clears the old copies when this version takes over
+const CORE = ['./', './index.html', './gsheet.js', './manifest.json', './icon.png', './apple-touch-icon.png', './favicon-32.png'];
 
 self.addEventListener('install', e => {
   self.skipWaiting();
@@ -13,7 +13,7 @@ self.addEventListener('install', e => {
 
 self.addEventListener('activate', e => {
   e.waitUntil(caches.keys()
-    .then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k))))
+    .then(ks => Promise.all(ks.filter(k => k.startsWith('centric-m-v') && k !== CACHE).map(k => caches.delete(k))))
     .then(() => self.clients.claim())
     .then(() => tell('centric-updated')));   // an open app reloads into the new copy when next brought back
 });
@@ -55,7 +55,7 @@ self.addEventListener('fetch', e => {
    fetched from the script here, using the address and key the app hands over (stored below).
    Tapping the alert opens Spend, or brings the open app there. */
 const SW_VER = '2026-11-04v';   // which copy of this file is running (the app's Alert log shows it)
-const CFG_CACHE = 'centric-cfg', CFG_URL = './__cfg';
+const CFG_CACHE = 'centric-m-cfg', CFG_URL = './__cfg';
 self.addEventListener('message', e => {
   const m = e.data || {};
   if (m.type === 'ver' && e.source) { e.source.postMessage({ type: 'ver', ver: SW_VER }); return; }

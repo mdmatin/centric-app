@@ -9,11 +9,14 @@
 <meta name="apple-mobile-web-app-title" content="Centric">
 <meta name="theme-color" content="#f5f5f7">
 <script>
+// This app shares mdmatin.github.io with the original Centric, and a site's saved data is shared by every app on it.
+// Everything this app keeps on the phone is prefixed, so it never reads or overwrites the original's.
+var LSX = { p:'cm:', getItem:function(k){ return localStorage.getItem(this.p+k); }, setItem:function(k,v){ localStorage.setItem(this.p+k,v); }, removeItem:function(k){ localStorage.removeItem(this.p+k); } };
 // UI theme (OG or a concept), before first paint
-try{ var u = JSON.parse(localStorage.getItem('inv.prefs')||'{}').uiTheme; document.documentElement.setAttribute('data-ui', u==='river' || u==='zoom' || u==='dial' ? u : 'og'); }catch(e){}
+try{ var u = JSON.parse(LSX.getItem('inv.prefs')||'{}').uiTheme; document.documentElement.setAttribute('data-ui', u==='river' || u==='zoom' || u==='dial' ? u : 'og'); }catch(e){}
 // Appearance, before first paint: 'light' | 'dark' | 'auto' (follows the phone)
 (function(){
-  var pick = 'auto'; try{ pick = JSON.parse(localStorage.getItem('inv.theme')) || 'auto'; }catch(e){}
+  var pick = 'auto'; try{ pick = JSON.parse(LSX.getItem('inv.theme')) || 'auto'; }catch(e){}
   var mq = window.matchMedia && matchMedia('(prefers-color-scheme: dark)');
   window.applyTheme = function(p){
     if (p) pick = p;
@@ -2161,15 +2164,15 @@ html[data-theme=dark] .lg .lgh1{color:#ffd60a}
 
 <!-- =================== SETUP =================== -->
 <section id="setup" class="setup" hidden>
-  <h1>Connect your sheet</h1>
-  <p>Paste the Web app URL from Apps Script and the passcode you set in the script. Both are stored only on this device.</p>
+  <h1>Centric</h1>
+  <p>Sign in with Google. Centric keeps your money in a spreadsheet in your own Google Drive, and can only see the spreadsheet it makes for you.</p>
   <div id="setupErr" class="err" hidden></div>
-  <div class="fields">
+  <div class="fields" hidden>
     <div class="f"><label>URL</label><input id="inUrl" placeholder="https://script.google.com/…" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="url"></div>
     <div class="f"><label>Passcode</label><input id="inKey" type="password" placeholder="from Code.gs" autocapitalize="off"></div>
   </div>
-  <button class="btn" id="btnConnect">Connect</button>
-  <p class="hint">After connecting, tap Share ▸ Add to Home Screen in Safari to use this as an app.
+  <button class="btn" id="btnConnect">Sign in with Google</button>
+  <p class="hint">After signing in, tap Share ▸ Add to Home Screen in Safari to use Centric as an app.
   <br><span id="buildStamp2" class="faint"></span></p>
 </section>
 
@@ -2355,11 +2358,12 @@ html[data-theme=dark] .lg .lgh1{color:#ffd60a}
 
 <div class="toast" id="toast"></div>
 
+<script src="gsheet.js"></script>
 <script>
 /* ==========================================================================
    CONFIG
    ========================================================================== */
-const BUILD = 'm1-2026-11-02';
+const BUILD = 'm2-2026-11-02';
 /* Centric (multi-user, Money only). Anything that used to be one person's setup comes from the user's own
    sheet: Settings (name, currency, defaults) and Accounts (each card's cashback mode and where it lands).
    Modules not in this version stay in the code but are switched off here. */
@@ -2391,8 +2395,8 @@ let editing = null;
 
 const $ = (s, r=document) => r.querySelector(s);
 const $$ = (s, r=document) => [...r.querySelectorAll(s)];
-function load(k){ try{ return JSON.parse(localStorage.getItem(k)); }catch(e){ return null; } }
-function save(k,v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+function load(k){ try{ return JSON.parse(LSX.getItem(k)); }catch(e){ return null; } }
+function save(k,v){ try{ LSX.setItem(k, JSON.stringify(v)); }catch(e){} }
 
 /* ---------- formatting ---------- */
 const inr  = new Intl.NumberFormat('en-IN',{maximumFractionDigits:0});
@@ -2427,6 +2431,7 @@ const ago = ms => ms<60e3 ? 'just now' : ms<3600e3 ? Math.round(ms/60e3)+'m ago'
 
 /* ---------- api ---------- */
 async function api(params){
+  if (cfg && cfg.mode==='google') return GS.get(params);   // the user's own sheet, through the Sheets API
   const u = new URL(cfg.url);
   Object.entries({key:cfg.key,...params}).forEach(([k,v])=>u.searchParams.set(k,v));
   const r = await fetch(u,{redirect:'follow'});
@@ -2434,6 +2439,7 @@ async function api(params){
   if(!j.ok) throw new Error(j.error||'Request failed'); return j;
 }
 async function apiPost(action, data){
+  if (cfg && cfg.mode==='google') return GS.post(action, data);
   // text/plain avoids a CORS preflight, which Apps Script cannot answer.
   const r = await fetch(cfg.url,{method:'POST',redirect:'follow',
     headers:{'Content-Type':'text/plain;charset=utf-8'},
@@ -2449,6 +2455,11 @@ async function apiPost(action, data){
 let editSeq = 0, wantFresh = false, pendingSaves = 0;
 async function refresh(manual, fresh){
   if (!cfg) return;
+  if (cfg.mode==='google'){   // Money only: the sheet is the expenses read
+    if (manual) ptrSpin(true); else setStatus('Refreshing…','');
+    try{ await loadExpenses(true); setStatus(X ? 'Updated just now' : 'Offline', X ? '' : 'err'); } finally{ if (manual) ptrSpin(false); }
+    return;
+  }
   if (loading){ if (fresh) wantFresh = true; return; }
   loading = true;
   if (manual) ptrSpin(true); if (!fresh) setStatus('Refreshing…','');
@@ -4617,8 +4628,9 @@ let pressT;
 $('#title').addEventListener('touchstart',()=>{ pressT=setTimeout(disconnect,900); });
 $('#title').addEventListener('touchend',()=>clearTimeout(pressT));
 $('#title').addEventListener('dblclick',disconnect);
-function disconnect(){ if(confirm('Disconnect this sheet and enter a new URL / passcode?')){
-  localStorage.removeItem(LS.cfg); localStorage.removeItem(LS.data); location.reload(); } }
+function disconnect(){ if(confirm(cfg && cfg.mode==='google' ? 'Sign out of Google on this device? Your sheet stays in your Drive.' : 'Disconnect this sheet and enter a new URL / passcode?')){
+  if (cfg && cfg.mode==='google') GS.signOut();
+  LSX.removeItem(LS.cfg); LSX.removeItem(LS.data); location.reload(); } }
 
 /* ---------- setup ---------- */
 /* ==========================================================================
@@ -5396,7 +5408,11 @@ async function loadExpenses(fresh){
     if (activeView==='trend' && D) renderTrends(D.data.daily, D.data.monthly);   // cash in accounts is live
     const top = pageStack[pageStack.length-1];
     if (top && /^(expcat|inccat|budgets|acct|zakat|interest|constr|books|bklog|recurring|profile|bucket)$/.test(top.kind)){ const el=$('#page'), y=el.scrollTop; renderPage(); el.scrollTop=y; }
-  }catch(e){ if (activeView==='spend' && !X) $('#spBody').innerHTML = `<div class="empty">${esc(e.message||'Could not load expenses')}</div>`; }
+  }catch(e){
+    if (e && e.reconnect){ setStatus('Tap to sign in again','err'); const st = $('#navSub'); if (st) st.onclick = ()=>GS.reconnect().then(()=>refresh(true)).catch(x=>toast(x.message)); }
+    if (activeView==='spend' && !X) $('#spBody').innerHTML = `<div class="empty">${esc(e.message||'Could not load expenses')}${e && e.reconnect ? '<br><button class="btn" id="gsAgain" style="margin-top:14px">Sign in again</button>' : ''}</div>`;
+    const ga = $('#gsAgain'); if (ga) ga.onclick = ()=>GS.reconnect().then(()=>loadExpenses(true)).catch(x=>toast(x.message));
+  }
   finally{
     xLoading = false;
     if (xAgain && !xPending){ xAgain = false; setTimeout(()=>loadExpenses(true), 0); }
@@ -5937,7 +5953,7 @@ function openTx(tx){
    and keeps them on the phone (IndexedDB). Each later open sends the copy's signature; the script
    reads just its date column and answers "same" unless an old row changed. */
 const IDB = { db:null,
-  open(){ return this.db || (this.db = new Promise((ok, no)=>{ try{ const r = indexedDB.open('centric', 1); r.onupgradeneeded = ()=>r.result.createObjectStore('kv'); r.onsuccess = ()=>ok(r.result); r.onerror = ()=>no(r.error); }catch(e){ no(e); } })); },
+  open(){ return this.db || (this.db = new Promise((ok, no)=>{ try{ const r = indexedDB.open('centric-money', 1); r.onupgradeneeded = ()=>r.result.createObjectStore('kv'); r.onsuccess = ()=>ok(r.result); r.onerror = ()=>no(r.error); }catch(e){ no(e); } })); },
   async get(k){ try{ const db = await this.open(); return await new Promise(ok=>{ const q = db.transaction('kv').objectStore('kv').get(k); q.onsuccess = ()=>ok(q.result); q.onerror = ()=>ok(null); }); }catch(e){ return null; } },
   async set(k, v){ try{ const db = await this.open(); db.transaction('kv','readwrite').objectStore('kv').put(v, k); }catch(e){} }
 };
@@ -8681,7 +8697,7 @@ $('#btnLockPass').onclick = ()=>{
     else if (act==='lockon'){ if (confirm('Turn on Face ID lock?\n\nCentric will ask for Face ID when it opens and after a minute in the background.')) enrollLock(); }
     else if (act==='lockoff'){
       try{ await verifyFace(); }catch(err){ toast('Face ID is needed to turn the lock off'); return; }
-      if (confirm('Turn off Face ID lock?')){ lockCfg = null; localStorage.removeItem('inv.lock'); paintMenu(); toast('Face ID lock is off'); }
+      if (confirm('Turn off Face ID lock?')){ lockCfg = null; LSX.removeItem('inv.lock'); paintMenu(); toast('Face ID lock is off'); }
     }
   };
 })();
@@ -8698,6 +8714,12 @@ document.addEventListener('visibilitychange', ()=>{
 paintLockBtn();
 
 $('#btnConnect').onclick = async ()=>{
+  const b0 = $('#btnConnect'); $('#setupErr').hidden = true; b0.disabled = true; b0.textContent = 'Signing in…';
+  try{ await GS.connect(); save(LS.cfg, cfg); start(); }
+  catch(e){ cfg = null; $('#setupErr').textContent = e.message || 'Could not sign in'; $('#setupErr').hidden = false; }
+  finally{ b0.disabled = false; b0.textContent = 'Sign in with Google'; }
+};
+const btnConnectOld = async ()=>{
   const url=$('#inUrl').value.trim(), key=$('#inKey').value.trim(), b=$('#btnConnect');
   $('#setupErr').hidden=true;
   if(!/^https:\/\/script\.google(usercontent)?\.com\//.test(url)){
@@ -8882,7 +8904,7 @@ function wireProfile(){
       if (!lockCfg){ await enrollLock(); }
       else {
         try{ await verifyFace(); }catch(err){ toast('Face ID is needed to turn the lock off'); return; }
-        lockCfg = null; localStorage.removeItem('inv.lock'); toast('Face ID lock is off');
+        lockCfg = null; LSX.removeItem('inv.lock'); toast('Face ID lock is off');
       }
     }
     else if (k==='paise'){ setPref('paise', PREF.paise===false); rerenderAll(); }
@@ -8902,7 +8924,7 @@ function wireProfile(){
   $$('#page [data-act]').forEach(b=>b.onclick=()=>{
     const a = b.dataset.act;
     if (a==='locknow') lockNow(false);
-    else if (a==='alertlog'){ (async()=>{ let sw = []; try{ const r = await (await caches.open('centric-cfg')).match('./__log'); if (r) sw = await r.json(); }catch(e){}
+    else if (a==='alertlog'){ (async()=>{ let sw = []; try{ const r = await (await caches.open('centric-m-cfg')).match('./__log'); if (r) sw = await r.json(); }catch(e){}
       let sv = []; try{ sv = (await api({ action:'pushTap' })).data.log || []; }catch(e){}
       const L = [...(load('inv.alog')||[]), ...sw, ...sv].sort().slice(-40); alert(L.length ? L.join('\n') : 'Nothing logged yet'); })(); }
     else if (a==='refresh'){ refresh(true); loadExpenses(true); toast('Refreshing…'); }
@@ -8914,7 +8936,7 @@ function wireProfile(){
     else if (a==='tax') pushPage({ kind:'tax' });
     else if (a==='clear'){
       if (!confirm('Clear cached data?\n\nCentric will download everything again from your sheet. Your connection and settings stay.')) return;
-      ['inv.data','inv.exp'].forEach(k=>localStorage.removeItem(k)); location.reload();
+      ['inv.data','inv.exp'].forEach(k=>LSX.removeItem(k)); location.reload();
     }
   });
 }
@@ -9202,7 +9224,7 @@ function start(){
   refresh(); schedule();
   if (!MODULES.investments){ $$('.tabs [data-v=home],.tabs [data-v=break]').forEach(b=>b.hidden = true); show(load('inv.start')==='acc' ? 'acc' : 'spend'); }   // Money only: Accounts and Spend
   else if (load('inv.start')==='spend' || /[?&]go=spend/.test(location.search)) show('spend');     // "Open on" in the profile menu, or a tapped draft alert
-  if (/[?&]go=/.test(location.search)) try{ history.replaceState(null, '', location.pathname); caches.open('centric-cfg').then(c=>c.delete('./__go')); }catch(e){}   // opened from an alert: its note is used up
+  if (/[?&]go=/.test(location.search)) try{ history.replaceState(null, '', location.pathname); caches.open('centric-m-cfg').then(c=>c.delete('./__go')); }catch(e){}   // opened from an alert: its note is used up
   if (typeof swCfg==='function') swCfg();   // (defined further down; on first load it runs from there)
 }
 /* ============================ RIVER (theme) ============================ */
@@ -9899,7 +9921,7 @@ if(cfg) start(); else $('#setup').hidden=false;
 function alog(m){ try{ const L = load('inv.alog') || []; L.push(new Date().toTimeString().slice(0,8) + ' app ' + m); save('inv.alog', L.slice(-30)); }catch(e){} }
 function goTo(view){
   alog('goTo ' + view + ' · pages ' + pageStack.length + ' · pg ' + ((history.state && history.state.pg) || 0) + ' · view ' + activeView);
-  try{ caches.open('centric-cfg').then(c=>c.delete('./__go')); }catch(e){}
+  try{ caches.open('centric-m-cfg').then(c=>c.delete('./__go')); }catch(e){}
   closeTxMenu(); closeDrafts();
   const n = (history.state && history.state.pg) || 0;
   if (pageStack.length && n){ history.go(-n); setTimeout(()=>show(view), 380); }   // popstate closes the pages
@@ -9909,7 +9931,7 @@ function goTo(view){
 // note isn't there yet when the app becomes visible: look for it a few times over the next few seconds
 function goNoteCheck(){
   if (!('caches' in window)) return;
-  caches.open('centric-cfg').then(c=>c.match('./__go')).then(r=>r && r.json()).then(g=>{ if (g) alog('note ' + g.view + ' age ' + Math.round((Date.now() - g.at)/1000) + 's'); if (g && g.view && Date.now() - g.at < 2*60e3) goTo(g.view); }).catch(e=>alog('note error ' + e.message));
+  caches.open('centric-m-cfg').then(c=>c.match('./__go')).then(r=>r && r.json()).then(g=>{ if (g) alog('note ' + g.view + ' age ' + Math.round((Date.now() - g.at)/1000) + 's'); if (g && g.view && Date.now() - g.at < 2*60e3) goTo(g.view); }).catch(e=>alog('note error ' + e.message));
 }
 // The tap is also reported to the script by the service worker, so the app asks there too (the phone may keep the
 // service worker's notes where the app can't read them). Each tap is used once, and only within a minute.

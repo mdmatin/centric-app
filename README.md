@@ -2,13 +2,14 @@
 
 A personal-finance PWA where your data lives in your own Google Sheet.
 
-**Status: phase 1 of 5** — sheet template, settings, and the app freed of one-person setup.
-The app still talks to the original Apps Script backend; phase 2 replaces that with
-Sign in with Google and the Sheets API (`drive.file` scope).
+**Status: phase 2 of 5** — Sign in with Google; the app creates the user's own "Centric – Money" sheet
+and reads/writes it through the Sheets API (`drive.file` scope). Data layer: `gsheet.js`.
+Google Cloud project `centric-513507`, OAuth client "Centric web" (origin https://mdmatin.github.io), in Testing.
 
 ## Layout
 
 - `index.html`, `sw.js`, `manifest.json` — the app (single file, as before)
+- `gsheet.js` — Google sign-in and the Sheets/Drive calls behind `api()` / `apiPost()`
 - `template/Centric-Money-Template.xlsx` — the sheet every user starts from
 - `docs/schema.md` — tabs, columns and the fields the app reads
 - `docs/personal-values.md` — what was hard-coded and what replaced it
